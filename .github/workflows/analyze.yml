@@ -9,6 +9,11 @@ on:
         type: string
         required: false
         default: ''
+      model:
+        description: Claude model alias for the analysis (opus | sonnet | haiku); empty = sonnet
+        type: string
+        required: false
+        default: sonnet
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -25,7 +30,19 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       items: ${{ steps.list.outputs.items }}
+      model: ${{ steps.model.outputs.model }}
     steps:
+      # Allowlisted aliases only: the value ends up on the claude command line.
+      - id: model
+        env:
+          MODEL: ${{ inputs.model }}
+        run: |
+          model="${MODEL:-sonnet}"
+          case "$model" in
+            opus|sonnet|haiku) echo "model=$model" >> "$GITHUB_OUTPUT"; echo "model: $model" ;;
+            *) echo "::error::model must be opus, sonnet or haiku (got: $model)"; exit 1 ;;
+          esac
+
       # Runs are serialized by the caller's concurrency group; checking out the branch tip
       # (not github.sha) makes a queued run see what the previous run already published.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -200,6 +217,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           DISABLE_AUTOUPDATER: '1'
           FULL: ${{ steps.resolve.outputs.full }}
+          MODEL: ${{ needs.plan.outputs.model }}
         run: |
           set +e
           TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"; unset CLAUDE_CODE_OAUTH_TOKEN
@@ -207,7 +225,7 @@ jobs:
           CHECK="$AB/skills/arch-blueprint/scripts/check.py"
           TAX=-; TAXARG=()
           if [ -f "$GITHUB_WORKSPACE/taxonomy.yml" ]; then TAX="$GITHUB_WORKSPACE/taxonomy.yml"; TAXARG=(--taxonomy "$TAX"); fi
-          FLAGS=(--model opus --output-format stream-json --verbose
+          FLAGS=(--model "$MODEL" --output-format stream-json --verbose
             --restricted --permission-mode dontAsk
             --tools Read Glob Grep Write Edit
             --strict-mcp-config

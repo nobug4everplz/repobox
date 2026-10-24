@@ -50,7 +50,11 @@
 
 1. GitHub 頭像 **Settings → Developer settings → Personal access token → Fine-grained tokens** 建一把 token：只選私人的 `repobox-library`，權限只開 **Contents: Read and write**。
 2. 打開收藏網頁的設定，填上 `<帳號>/repobox-library` 和這把 token。
-3. Android 把網頁加到主畫面，分享選單就有 RepoBox；電腦把網頁上的書籤按鈕拖到書籤列。
+3. Android 把網頁加到主畫面，分享選單就有 RepoBox；電腦把網頁上的書籤按鈕拖到書籤列；iPhone 照 [iOS 捷徑教學](docs/ios-shortcut.md) 建一個分享捷徑。
+
+### 換模型（選用）
+
+分析預設用 Sonnet。想換成 Opus 或 Haiku，到 `repobox-library` 的 **Settings → Secrets and variables → Actions → Variables** 新增 `REPOBOX_MODEL`，值填 `opus`、`sonnet` 或 `haiku`。收藏庫的 `.github/workflows/repobox.yml` 要在 `with:` 底下傳 `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}`。
 
 ## 隱私與安全
 

@@ -50,7 +50,11 @@ The page will be at `https://<username>.github.io/repobox/`.
 
 1. From your GitHub avatar, go to **Settings → Developer settings → Personal access token → Fine-grained tokens** and create a token: select only your private `repobox-library` and grant only **Contents: Read and write**.
 2. Open the collection page's settings and enter `<username>/repobox-library` and this token.
-3. On Android, add the page to your home screen and RepoBox appears in the share menu; on a computer, drag the bookmark button on the page to your bookmarks bar.
+3. On Android, add the page to your home screen and RepoBox appears in the share menu; on a computer, drag the bookmark button on the page to your bookmarks bar; on iPhone, build a share shortcut by following the [iOS Shortcut guide](docs/ios-shortcut.md) (in Traditional Chinese).
+
+### Change the model (optional)
+
+Analysis uses Sonnet by default. To switch to Opus or Haiku, add `REPOBOX_MODEL` under `repobox-library`'s **Settings → Secrets and variables → Actions → Variables**, set to `opus`, `sonnet` or `haiku`. The library's `.github/workflows/repobox.yml` must pass `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}` under `with:`.
 
 ## Privacy & security
 

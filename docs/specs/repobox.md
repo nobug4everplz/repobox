@@ -198,6 +198,8 @@ Claude 讀的是陌生 repo 的內容，要當成可能含有 prompt injection �
 
 步驟 2 的輸入（clone 好的 repo、metadata）和輸出（`out/summary.json`、`out/diagram.svg`）固定不變，執行器可以替換。arch-blueprint 是 Agent Skills 格式，Claude Code 和 Codex 都能載入。
 
+模型由 reusable workflow 的 `model` input 決定，只接受 `opus`／`sonnet`／`haiku`，預設 `sonnet`（2026-10-24 由固定 `opus` 改為可設定）。收藏庫 stub 傳 `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}`，就能在收藏庫的 Actions variables 切換，不用改 SHA。`haiku` 未驗證能否穩定通過 arch-blueprint 的檢查。
+
 | 執行器 | 認證 | 狀態 |
 |---|---|---|
 | Claude Code CLI（runner 上直接 `npm install` 後跑 `claude -p`） | `claude setup-token` 產生的訂閱 token（`CLAUDE_CODE_OAUTH_TOKEN`）；沒有訂閱的人可改用 API key | v1。不用官方 `claude-code-action`：它的觸發事件清單裡沒有 `push`，預設還要安裝 Claude GitHub App |
@@ -270,7 +272,7 @@ Claude 讀的是陌生 repo 的內容，要當成可能含有 prompt injection �
 - **截圖辨識：** 看圖找候選 repo，由 GitHub API 驗證，找不到就進待確認。
 - **MCP server 或 CLI：** 讓 Claude Code 等 coding agent 查詢收藏庫。
 - **最小瀏覽器擴充：** 工具列按鈕加右鍵選單，只有在書籤不夠用時才做。
-- **iOS：** 捷徑或 Discord 入口。
+- **iOS：** 捷徑或 Discord 入口。捷徑版的手動建立步驟見 `docs/ios-shortcut.md`（2026-10-24，未經實機驗證）。
 
 ## 已結案的問題（2026-10-23 結案時依現況定案）
 
