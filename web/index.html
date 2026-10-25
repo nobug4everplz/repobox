@@ -94,6 +94,14 @@
     .card .tl { font-size: 17px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
     .card .rp { font-size: 13px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .card .nt { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+    /* Cards with 感興趣／沒興趣: a box holding the link and the button row (buttons cannot sit inside a link). */
+    .card .cl { display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; min-width: 0; }
+    .card.skipped { opacity: 0.5; }
+    .rx { display: flex; gap: 8px; margin-top: 8px; }
+    .rx button { border: 1.5px solid var(--line); border-radius: 999px; background: var(--field); padding: 2px 12px;
+                 font-size: 13px; cursor: pointer; min-height: 32px; }
+    .rx button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
+    .rx button:disabled { opacity: 0.6; cursor: default; }
     .card .bd { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .card .bd span { font-size: 12px; border: 1px solid var(--rule); border-radius: 4px; padding: 0 7px; color: var(--mute); }
     .card.pending { border-style: dashed; }

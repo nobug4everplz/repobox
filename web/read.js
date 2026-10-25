@@ -1,7 +1,8 @@
 'use strict';
 
 import { prepareSvg, rejectedNotice, wire, draft, mountLightbox } from './lib/diagram.mjs';
-import { parseStem, stemOf, ghRaw, loadIndex, removeEntry, specRows, categoryLabel, STATE_TEXT } from './lib/library.mjs';
+import { parseStem, stemOf, ghRaw, loadIndex, removeEntry, specRows, categoryLabel, STATE_TEXT,
+  loadReactions, setReaction } from './lib/library.mjs';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -138,13 +139,41 @@ function removeButton(cfg, stem, repo) {
   return b;
 }
 
+// 感興趣／沒興趣 (coupled with app.js react()): pressing the active one again clears it.
+function reactButtons(cfg, repo) {
+  const box = el('div', 'rk');
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(repo)) return box;
+  let cur = null;
+  const buttons = [['like', '☆ 感興趣'], ['skip', '✕ 沒興趣']].map(([r, label]) => {
+    const b = el('button', null, label); b.type = 'button'; b.dataset.r = r;
+    b.onclick = async () => {
+      const next = cur === r ? null : r;
+      for (const x of buttons) x.disabled = true;
+      try {
+        await setReaction(cfg, repo, next);
+        cur = next;
+      } catch (e) {
+        alert(e.status === 401 ? `沒存到：${STATE_TEXT.auth}` : e.status === 403 ? '沒存到：token 沒有這個收藏庫的寫入權限。' :
+          e.status ? `沒存到（GitHub 回應 ${e.status}），稍後再試。` : `沒存到：${STATE_TEXT.unavailable}`);
+      }
+      show();
+    };
+    return b;
+  });
+  const show = () => { for (const b of buttons) { b.disabled = false; b.setAttribute('aria-pressed', String(cur === b.dataset.r)); } };
+  for (const b of buttons) { b.disabled = true; b.setAttribute('aria-pressed', 'false'); }
+  box.append(...buttons);
+  loadReactions(cfg).then((items) => { const x = items[repo.toLowerCase()]; cur = x ? x.r : null; show(); });
+  return box;
+}
+
 function renderRecord(cfg, stem, rec, svgRes, legacy) {
   const repo = text(rec.repo) || stem;
   const h1 = el('h1', null, repo); h1.title = repo;
   const head = el('div', 'head'); head.append(h1);
   if (text(rec.tagline)) head.append(el('p', 'sub', rec.tagline));
   const parts = [head, cell('分類', categoryLabel(text(rec.category)) || '—'), cell('授權', text(rec.license) || '—'),
-    cell('收藏日', day(lastSeen(rec)))];
+    cell('收藏日', day(lastSeen(rec))), reactButtons(cfg, repo)];
   if (/^https:\/\/github\.com\//.test(text(rec.url))) {
     const gh = el('a', 'gh', 'GitHub ↗'); gh.href = rec.url; gh.target = '_blank'; gh.rel = 'noopener';
     parts.push(gh);

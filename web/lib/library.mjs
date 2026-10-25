@@ -126,6 +126,64 @@ class RemoveError extends Error {
 }
 const must = (r) => { if (!r.data) throw new RemoveError(r.status); return r.data; };
 
+export function b64utf8(s) {
+  let bin = '';
+  for (const b of new TextEncoder().encode(s)) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+function utf8b64(b64) {
+  return new TextDecoder().decode(Uint8Array.from(atob(String(b64).replace(/\s/g, '')), (c) => c.charCodeAt(0)));
+}
+
+// reactions.json in the library root: {"v": 1, "items": {"<owner/repo lowercased>": {repo, r: like|skip, at}}}.
+// Written only by this page; the library's weekly picker reads it to learn what the owner likes.
+export const REACTIONS_PATH = 'reactions.json';
+const REACTIONS_MAX = 500;
+
+export function parseReactions(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { return {}; }
+  const items = data && typeof data.items === 'object' && data.items ? data.items : {};
+  const out = {};
+  for (const [key, v] of Object.entries(items).slice(0, REACTIONS_MAX)) {
+    if (!v || typeof v.repo !== 'string' || !FULL_RE.test(v.repo) || key !== v.repo.toLowerCase()) continue;
+    if (v.r !== 'like' && v.r !== 'skip') continue;
+    out[key] = { repo: v.repo, r: v.r, at: typeof v.at === 'string' ? v.at.slice(0, 40) : '' };
+  }
+  return out;
+}
+
+async function readReactions(cfg, fetchImpl) {
+  const r = await ghJson(cfg, 'GET', `/contents/${REACTIONS_PATH}`, null, fetchImpl);
+  if (r.status === 404) return { sha: null, items: {} };
+  const data = must(r);
+  return { sha: data.sha, items: parseReactions(utf8b64(data.content || '')) };
+}
+
+// Never throws: an unreadable file just means no reactions are shown.
+export async function loadReactions(cfg, fetchImpl = fetch) {
+  try { return (await readReactions(cfg, fetchImpl)).items; } catch { return {}; }
+}
+
+// Sets (r = like|skip) or clears (r = null) one repo's reaction in a single commit, re-reading and
+// retrying when another commit changed the file in between. Returns the new items; throws RemoveError.
+export async function setReaction(cfg, repo, r, fetchImpl = fetch) {
+  if (!FULL_RE.test(repo) || (r !== null && r !== 'like' && r !== 'skip')) throw new RemoveError(400);
+  const key = repo.toLowerCase();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { sha, items } = await readReactions(cfg, fetchImpl);
+    if (r) items[key] = { repo, r, at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') };
+    else delete items[key];
+    const body = { message: `${r || 'clear'}: ${repo}`, content: b64utf8(JSON.stringify({ v: 1, items }, null, 2) + '\n') };
+    if (sha) body.sha = sha;
+    const put = await ghJson(cfg, 'PUT', `/contents/${REACTIONS_PATH}`, body, fetchImpl);
+    if (put.status === 200 || put.status === 201) return items;
+    if (put.status !== 409 && put.status !== 422) throw new RemoveError(put.status);
+  }
+  throw new RemoveError(409);
+}
+
 export function withoutEntry(indexText, stem) {
   const data = JSON.parse(indexText);
   const entries = (Array.isArray(data.entries) ? data.entries : []).filter((e) => !(e && stemOf(e.md) === stem));

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStem, stemOf, mergeLibrary, specRows, ghRaw, loadIndex, STATE_TEXT, parseWeekly, loadWeekly, weeklyItems } from '../lib/library.mjs';
+import { parseStem, stemOf, mergeLibrary, specRows, ghRaw, loadIndex, STATE_TEXT, parseWeekly, loadWeekly, weeklyItems,
+  parseReactions, loadReactions, setReaction } from '../lib/library.mjs';
 
 const CFG = { repo: 'me/lib', token: 'tok' };
 const fakeFetch = (routes) => async (url, opts) => {
@@ -302,4 +303,55 @@ test('weeklyItems marks failed picks only while index.json lacks them', () => {
     { repo: 'a/b', kind: 'fun', reason: 'r', status: 'failed' }, { repo: 'c/d', kind: 'idea', reason: 'r', status: 'failed' }] }));
   const items = weeklyItems(weekly, { entries: [{ repo: 'a/b', md: 'library/a__b.md' }] });
   assert.deepEqual(items.map((it) => it.failed), [false, true]);
+});
+
+test('parseReactions keeps only well-formed entries', () => {
+  const items = parseReactions(JSON.stringify({ v: 1, items: {
+    'a/b': { repo: 'A/B', r: 'like', at: 't' }, 'c/d': { repo: 'c/d', r: 'love' }, 'x/y': { repo: 'e/f', r: 'skip' },
+    'g h/i': { repo: 'g h/i', r: 'skip' }, 'j/k': { repo: 'J/k', r: 'skip' } } }));
+  assert.deepEqual(Object.keys(items), ['a/b', 'j/k']);
+  const ok = parseReactions(JSON.stringify({ items: { 'a/b': { repo: 'a/b', r: 'like', at: 't' } } }));
+  assert.deepEqual(ok, { 'a/b': { repo: 'a/b', r: 'like', at: 't' } });
+  assert.deepEqual(parseReactions('nope'), {});
+});
+
+const reactFetch = (steps) => {
+  const calls = [];
+  const f = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
+    const s = steps.shift();
+    return new Response(s.body === undefined ? '{}' : JSON.stringify(s.body), { status: s.status });
+  };
+  f.calls = calls;
+  return f;
+};
+const file = (items, sha) => ({ status: 200, body: { sha, content: Buffer.from(JSON.stringify({ v: 1, items })).toString('base64') } });
+
+test('loadReactions treats a missing or unreadable file as empty', async () => {
+  assert.deepEqual(await loadReactions(CFG, reactFetch([{ status: 404 }])), {});
+  assert.deepEqual(await loadReactions(CFG, reactFetch([{ status: 401 }])), {});
+  const items = await loadReactions(CFG, reactFetch([file({ 'a/b': { repo: 'a/b', r: 'like', at: 't' } }, 's1')]));
+  assert.equal(items['a/b'].r, 'like');
+});
+
+test('setReaction creates the file, then updates with its sha', async () => {
+  const f = reactFetch([{ status: 404 }, { status: 201 }]);
+  const items = await setReaction(CFG, 'Owner/Repo', 'like', f);
+  assert.equal(items['owner/repo'].r, 'like');
+  const put = f.calls[1];
+  assert.equal(put.method, 'PUT');
+  assert.equal(put.url, 'https://api.github.com/repos/me/lib/contents/reactions.json');
+  assert.equal('sha' in put.body, false);
+  assert.equal(JSON.parse(Buffer.from(put.body.content, 'base64').toString()).items['owner/repo'].repo, 'Owner/Repo');
+});
+
+test('setReaction retries when the file moved, clears with null, and surfaces auth errors', async () => {
+  const f = reactFetch([file({}, 's1'), { status: 409 }, file({ 'a/b': { repo: 'a/b', r: 'skip', at: 't' } }, 's2'), { status: 200 }]);
+  const items = await setReaction(CFG, 'c/d', 'skip', f);
+  assert.deepEqual(Object.keys(items).sort(), ['a/b', 'c/d']);
+  assert.equal(f.calls[3].body.sha, 's2');
+  const g = reactFetch([file({ 'a/b': { repo: 'a/b', r: 'like', at: 't' } }, 's1'), { status: 200 }]);
+  assert.deepEqual(await setReaction(CFG, 'a/b', null, g), {});
+  await assert.rejects(setReaction(CFG, 'a/b', 'like', reactFetch([file({}, 's'), { status: 401 }])), (e) => e.status === 401);
+  await assert.rejects(setReaction(CFG, 'bad repo', 'like', reactFetch([])), (e) => e.status === 400);
 });

@@ -1,6 +1,7 @@
 'use strict';
 
-import { loadIndex, loadWeekly, weeklyItems, WEEKLY_KIND, mergeLibrary, badges, categoryLabel, STATE_TEXT } from './lib/library.mjs';
+import { loadIndex, loadWeekly, weeklyItems, WEEKLY_KIND, loadReactions, setReaction, b64utf8,
+  mergeLibrary, badges, categoryLabel, STATE_TEXT } from './lib/library.mjs';
 
 const CFG_KEY = 'repobox.cfg';
 const RESERVED_OWNERS = new Set([
@@ -85,12 +86,6 @@ function isoLocal(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
     `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
     `${sign}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
-}
-
-function b64utf8(s) {
-  let bin = '';
-  for (const b of new TextEncoder().encode(s)) bin += String.fromCharCode(b);
-  return btoa(bin);
 }
 
 const HISTORY_KEY = 'repobox.history';
@@ -199,27 +194,73 @@ function historyFor(cfg) {
 }
 
 // The list shows the whole library (index.json) plus local captures still being analyzed.
-const lib = { state: 'ok', index: null, weekly: null, repo: null };
+const lib = { state: 'ok', index: null, weekly: null, reactions: {}, repo: null };
 let libSeq = 0;
 
 // Only the latest request for the currently configured repo may update the list.
 async function loadLib() {
   const cfg = loadCfg();
   const seq = ++libSeq;
-  if (!cfg || !cfg.token) { Object.assign(lib, { state: 'ok', index: null, weekly: null, repo: null }); renderLibrary(); return; }
-  if (lib.repo !== cfg.repo) { Object.assign(lib, { state: 'ok', index: null, weekly: null, repo: cfg.repo }); renderLibrary(); }
-  const [result, weekly] = await Promise.all([loadIndex(cfg), loadWeekly(cfg)]);
+  const blank = { state: 'ok', index: null, weekly: null, reactions: {} };
+  if (!cfg || !cfg.token) { Object.assign(lib, blank, { repo: null }); renderLibrary(); return; }
+  if (lib.repo !== cfg.repo) { Object.assign(lib, blank, { repo: cfg.repo }); renderLibrary(); }
+  const [result, weekly, reactions] = await Promise.all([loadIndex(cfg), loadWeekly(cfg), loadReactions(cfg)]);
   const now = loadCfg();
   if (seq !== libSeq || !now || now.repo !== cfg.repo) return;
-  Object.assign(lib, result, { weekly, repo: cfg.repo });
+  Object.assign(lib, result, { weekly, reactions, repo: cfg.repo });
   renderLibrary();
 }
 
 let libFilter = '';
 let wantWeekly = location.hash === '#weekly';
-const PENDING = '__pending', FAILED = '__failed', WEEKLY = '__weekly';
+const PENDING = '__pending', FAILED = '__failed', WEEKLY = '__weekly', LIKED = '__liked';
 
-function card(href, external, cls, title, repo, chips, note = '') {
+// 感興趣／沒興趣: the screen changes at once; a failed write puts the old value back.
+const reacting = new Set();
+async function react(repo, r) {
+  const cfg = loadCfg();
+  const key = repo.toLowerCase();
+  if (!cfg || reacting.has(key)) return;
+  const prev = lib.reactions[key];
+  const next = prev && prev.r === r ? null : r;
+  reacting.add(key);
+  lib.reactions = { ...lib.reactions };
+  if (next) lib.reactions[key] = { repo, r: next, at: new Date().toISOString() }; else delete lib.reactions[key];
+  renderLibrary();
+  try {
+    const saved = await setReaction(cfg, repo, next);
+    if (lib.repo === cfg.repo) lib.reactions = saved;
+  } catch (e) {
+    lib.reactions = { ...lib.reactions };
+    if (prev) lib.reactions[key] = prev; else delete lib.reactions[key];
+    setRepo(repo);
+    setStatus('沒存到', 'err');
+    setHint(e.status === 401 ? STATE_TEXT.auth : e.status === 403 ? 'token 沒有這個收藏庫的寫入權限。' : e.status ? `GitHub 回應 ${e.status}，稍後再試。` : STATE_TEXT.unavailable);
+  } finally {
+    reacting.delete(key);
+    renderLibrary();
+  }
+}
+
+function reactRow(repo) {
+  const row = document.createElement('span');
+  row.className = 'rx';
+  const cur = lib.reactions[repo.toLowerCase()];
+  for (const [r, label] of [['like', '☆ 感興趣'], ['skip', '✕ 沒興趣']]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.setAttribute('aria-pressed', String(Boolean(cur && cur.r === r)));
+    b.disabled = reacting.has(repo.toLowerCase());
+    b.onclick = () => react(repo, r);
+    row.append(b);
+  }
+  return row;
+}
+
+// With `react` (owner/repo) the card becomes a box holding the link plus the reaction buttons,
+// because buttons cannot sit inside a link.
+function card(href, external, cls, title, repo, chips, note = '', react = '') {
   const a = document.createElement('a');
   a.className = cls ? `card ${cls}` : 'card';
   a.href = href;
@@ -233,7 +274,14 @@ function card(href, external, cls, title, repo, chips, note = '') {
     for (const c of chips) { const s = document.createElement('span'); s.textContent = c; bd.append(s); }
     a.append(bd);
   }
-  return a;
+  if (!react) return a;
+  const box = document.createElement('div');
+  box.className = a.className;
+  const r = lib.reactions[react.toLowerCase()];
+  if (r && r.r === 'skip') box.classList.add('skipped');
+  a.className = 'cl';
+  box.append(a, reactRow(react));
+  return box;
 }
 
 function catButton(key, label, count) {
@@ -259,14 +307,17 @@ function renderLibrary() {
   const failed = items.filter((it) => it.kind === 'failed');
   const counts = new Map();
   for (const it of entries) { const k = it.category || 'other'; counts.set(k, (counts.get(k) || 0) + 1); }
-  const known = new Set(['', PENDING, FAILED, WEEKLY, ...counts.keys()]);
+  const liked = cfg && lib.repo === cfg.repo
+    ? Object.values(lib.reactions).filter((x) => x.r === 'like').sort((a, b) => String(b.at).localeCompare(String(a.at))) : [];
+  const known = new Set(['', PENDING, FAILED, WEEKLY, LIKED, ...counts.keys()]);
   if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)
-    || (libFilter === WEEKLY && !picks.length)) libFilter = '';
+    || (libFilter === WEEKLY && !picks.length) || (libFilter === LIKED && !liked.length && !reacting.size)) libFilter = '';
   // An empty library with picks (or a #weekly link from the weekly email) opens on 本週精選.
   if (picks.length && (wantWeekly || (!items.length && !libFilter))) { libFilter = WEEKLY; wantWeekly = false; }
 
   const cats = [];
   if (picks.length) cats.push(catButton(WEEKLY, '本週精選', picks.length));
+  if (liked.length) cats.push(catButton(LIKED, '感興趣', liked.length));
   cats.push(catButton('', '全部', entries.length));
   const label = (k) => categoryLabel(k) || k;
   for (const [k, n] of [...counts].sort((a, b) => b[1] - a[1] || label(a[0]).localeCompare(label(b[0]), 'zh-Hant'))) cats.push(catButton(k, label(k), n));
@@ -275,7 +326,7 @@ function renderLibrary() {
   if (failed.length) cats.push(catButton(FAILED, '失敗', failed.length));
   $('cats').replaceChildren(...(items.length || picks.length ? cats : []));
 
-  if (!items.length && libFilter !== WEEKLY) {
+  if (!items.length && libFilter !== WEEKLY && libFilter !== LIKED) {
     const p = document.createElement('p');
     p.className = 'empty';
     p.textContent = cfg ? STATE_TEXT.empty : '連結收藏庫之後，你的書庫會列在這裡。';
@@ -288,11 +339,19 @@ function renderLibrary() {
   const entryCards = (list) => list.map((it) => card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo, it.repo, badges(it.requirements)));
   // A pick not analyzed yet links to GitHub; once index.json has it, to the reading page.
   const weeklyCards = () => picks.map((it) => (it.stem
-    ? card(`read.html#${it.stem}`, false, '', it.tagline || it.repo, `${WEEKLY_KIND[it.kind]} · ${it.repo}`, [], it.reason)
+    ? card(`read.html#${it.stem}`, false, '', it.tagline || it.repo, `${WEEKLY_KIND[it.kind]} · ${it.repo}`, [], it.reason, it.repo)
     : card(`https://github.com/${it.repo}`, true, it.failed ? 'failed' : 'pending', it.repo,
-      `${WEEKLY_KIND[it.kind]} · ${it.failed ? '分析失敗' : '分析中'}`, [], it.reason)));
+      `${WEEKLY_KIND[it.kind]} · ${it.failed ? '分析失敗' : '分析中'}`, [], it.reason, it.repo)));
+  const byRepo = new Map(entries.map((it) => [String(it.repo).toLowerCase(), it]));
+  const likedCards = () => liked.map((x) => {
+    const it = byRepo.get(x.repo.toLowerCase());
+    return it && it.stem
+      ? card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo, it.repo, badges(it.requirements), '', x.repo)
+      : card(`https://github.com/${x.repo}`, true, 'pending', x.repo, '還沒收進書庫', [], '', x.repo);
+  });
   let cards;
   if (libFilter === WEEKLY) cards = weeklyCards();
+  else if (libFilter === LIKED) cards = likedCards();
   else if (libFilter === PENDING) cards = pendingCards();
   else if (libFilter === FAILED) cards = failedCards();
   else if (libFilter) cards = entryCards(entries.filter((it) => (it.category || 'other') === libFilter));
