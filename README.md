@@ -54,7 +54,7 @@
 
 ### 換模型（選用）
 
-分析預設用 Sonnet。想換成 Opus 或 Haiku，到 `repobox-library` 的 **Settings → Secrets and variables → Actions → Variables** 新增 `REPOBOX_MODEL`，值填 `opus`、`sonnet` 或 `haiku`。收藏庫的 `.github/workflows/repobox.yml` 要在 `with:` 底下傳 `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}`。
+分析預設用 Sonnet。想換成 Opus 或 Haiku，到 `repobox-library` 的 **Settings → Secrets and variables → Actions → Variables** 新增 `REPOBOX_MODEL`，值填 `opus`、`sonnet` 或 `haiku`；想固定在某個版本就填完整型號，例如 `claude-sonnet-5-5`。收藏庫的 `.github/workflows/repobox.yml` 要在 `with:` 底下傳 `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}`。
 
 ## 隱私與安全
 

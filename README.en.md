@@ -54,7 +54,7 @@ The page will be at `https://<username>.github.io/repobox/`.
 
 ### Change the model (optional)
 
-Analysis uses Sonnet by default. To switch to Opus or Haiku, add `REPOBOX_MODEL` under `repobox-library`'s **Settings → Secrets and variables → Actions → Variables**, set to `opus`, `sonnet` or `haiku`. The library's `.github/workflows/repobox.yml` must pass `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}` under `with:`.
+Analysis uses Sonnet by default. To switch to Opus or Haiku, add `REPOBOX_MODEL` under `repobox-library`'s **Settings → Secrets and variables → Actions → Variables**, set to `opus`, `sonnet` or `haiku`, or a full model id such as `claude-sonnet-5-5` to pin an exact version. The library's `.github/workflows/repobox.yml` must pass `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}` under `with:`.
 
 ## Privacy & security
 

@@ -73,6 +73,7 @@
 - **設定：** repo 名稱與 token 存在瀏覽器本地；token 不進網址、不進 console。對外只連 `api.github.com`，不載入任何第三方腳本（任何外部 JS 都讀得到這個網頁的 localStorage）。
 - **收藏頁版面：** 單欄、一個畫面：最上面只有「貼上 GitHub 連結」的輸入框，下方一行狀態（已收／待確認＋確認鈕／錯誤＋重試鈕），再下面是書庫清單。電腦書籤按鈕收在設定抽屜。配色維持藍色製圖紙與格線（2026-10-19 試過黑白版，使用者決定改回）。
 - **書庫清單：** 讀收藏庫的 `index.json` 列出全部條目。電腦版左邊是分類索引（全部、各分類依筆數排序、分析中、失敗），右邊是卡片牆；手機版分類變成頂部可左右滑的按鈕列。卡片是純文字（首頁不放架構圖，縮小後看不清楚）：大字副標（`tagline`）、repo 名稱、最多三個從使用門檻拆出的小標籤（作業系統、免費／需付模型費／訂閱、不需安裝）。卡片與分類索引用實心底，格線只露在縫隙。`index.json` 讀不到時分成六種狀態顯示（空書庫、找不到收藏庫或無權限、token 失效、暫時連不到、目錄格式錯誤），任何情況下本機的分析中項目都照樣列出。點條目進閱讀頁。
+- **本週精選（fork，2026-10-25）：** 收藏庫若有每週精選 workflow（`.github/workflows/weekly.yml`），會產生 `weekly/latest.json`：`{week, generated_at, notified, picks: [{repo, url, kind, reason, status, tagline, md, …}]}`。網頁只採用 `repo`（須符合 `owner/name`）、`kind`（`useful`／`fun`／`idea`，顯示為 便利／有趣／新思路）、`reason`（截到 200 字）、`status`（只認 `failed`），最多 10 筆，全部用 `textContent` 顯示。副標與閱讀頁連結一律從 `index.json` 對 repo（不分大小寫）取得；還沒分析的連到 GitHub 並標「分析中」，`status: failed` 的標「分析失敗」。檔案不存在（404）時整個分類隱藏。分類索引最前面是「本週精選」；書庫是空的、或網址是 `#weekly`（每週通知信的連結）時預設打開它。
 
 ### 閱讀頁 `read.html#<stem>`
 
@@ -198,7 +199,7 @@ Claude 讀的是陌生 repo 的內容，要當成可能含有 prompt injection �
 
 步驟 2 的輸入（clone 好的 repo、metadata）和輸出（`out/summary.json`、`out/diagram.svg`）固定不變，執行器可以替換。arch-blueprint 是 Agent Skills 格式，Claude Code 和 Codex 都能載入。
 
-模型由 reusable workflow 的 `model` input 決定，只接受 `opus`／`sonnet`／`haiku`，預設 `sonnet`（2026-10-24 由固定 `opus` 改為可設定）。收藏庫 stub 傳 `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}`，就能在收藏庫的 Actions variables 切換，不用改 SHA。`haiku` 未驗證能否穩定通過 arch-blueprint 的檢查。
+模型由 reusable workflow 的 `model` input 決定，接受別名 `opus`／`sonnet`／`haiku`，或 `claude-(opus|sonnet|haiku)-N(-N)*` 形式的完整 id（例如 `claude-sonnet-5-5`，2026-10-25 加入，用來把模型固定住，不隨 Claude Code 版本的別名對應改變），其他值一律 `exit 1`；預設 `sonnet`（2026-10-24 由固定 `opus` 改為可設定）。收藏庫 stub 傳 `model: ${{ vars.REPOBOX_MODEL || 'sonnet' }}`，就能在收藏庫的 Actions variables 切換，不用改 SHA。`haiku` 未驗證能否穩定通過 arch-blueprint 的檢查。
 
 | 執行器 | 認證 | 狀態 |
 |---|---|---|

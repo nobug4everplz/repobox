@@ -293,5 +293,13 @@ test('weeklyItems links analyzed picks and leaves the rest on GitHub', () => {
   assert.equal(items[0].stem, 'a__b');
   assert.equal(items[0].tagline, '一句話');
   assert.equal(items[1].stem, null);
+  assert.equal(items[1].failed, undefined);
   assert.deepEqual(weeklyItems(null, index), []);
+});
+
+test('weeklyItems marks failed picks only while index.json lacks them', () => {
+  const weekly = parseWeekly(JSON.stringify({ week: 'w', picks: [
+    { repo: 'a/b', kind: 'fun', reason: 'r', status: 'failed' }, { repo: 'c/d', kind: 'idea', reason: 'r', status: 'failed' }] }));
+  const items = weeklyItems(weekly, { entries: [{ repo: 'a/b', md: 'library/a__b.md' }] });
+  assert.deepEqual(items.map((it) => it.failed), [false, true]);
 });

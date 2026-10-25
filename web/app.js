@@ -216,6 +216,7 @@ async function loadLib() {
 }
 
 let libFilter = '';
+let wantWeekly = location.hash === '#weekly';
 const PENDING = '__pending', FAILED = '__failed', WEEKLY = '__weekly';
 
 function card(href, external, cls, title, repo, chips, note = '') {
@@ -261,6 +262,8 @@ function renderLibrary() {
   const known = new Set(['', PENDING, FAILED, WEEKLY, ...counts.keys()]);
   if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)
     || (libFilter === WEEKLY && !picks.length)) libFilter = '';
+  // An empty library with picks (or a #weekly link from the weekly email) opens on 本週精選.
+  if (picks.length && (wantWeekly || (!items.length && !libFilter))) { libFilter = WEEKLY; wantWeekly = false; }
 
   const cats = [];
   if (picks.length) cats.push(catButton(WEEKLY, '本週精選', picks.length));
@@ -286,7 +289,8 @@ function renderLibrary() {
   // A pick not analyzed yet links to GitHub; once index.json has it, to the reading page.
   const weeklyCards = () => picks.map((it) => (it.stem
     ? card(`read.html#${it.stem}`, false, '', it.tagline || it.repo, `${WEEKLY_KIND[it.kind]} · ${it.repo}`, [], it.reason)
-    : card(`https://github.com/${it.repo}`, true, 'pending', it.repo, `${WEEKLY_KIND[it.kind]} · 分析中`, [], it.reason)));
+    : card(`https://github.com/${it.repo}`, true, it.failed ? 'failed' : 'pending', it.repo,
+      `${WEEKLY_KIND[it.kind]} · ${it.failed ? '分析失敗' : '分析中'}`, [], it.reason)));
   let cards;
   if (libFilter === WEEKLY) cards = weeklyCards();
   else if (libFilter === PENDING) cards = pendingCards();

@@ -89,7 +89,7 @@ export function parseWeekly(text) {
   const picks = data.picks.filter((p) => p && typeof p.repo === 'string' && FULL_RE.test(p.repo)
     && Object.hasOwn(WEEKLY_KIND, p.kind) && typeof p.reason === 'string')
     .slice(0, 10)
-    .map((p) => ({ repo: p.repo, kind: p.kind, reason: p.reason.slice(0, 200) }));
+    .map((p) => ({ repo: p.repo, kind: p.kind, reason: p.reason.slice(0, 200), failed: p.status === 'failed' }));
   return { week: data.week.slice(0, 20), picks };
 }
 
@@ -98,7 +98,8 @@ export async function loadWeekly(cfg, fetchImpl = fetch) {
   return r.status === 200 ? parseWeekly(r.text) : null;
 }
 
-// Taglines and reading-page links come from index.json, so a pick shows its analysis as soon as it lands.
+// Taglines and reading-page links come from index.json, so a pick shows its analysis as soon as it lands;
+// `failed` comes from the weekly file (the library's refresh job matches inbox/failed/).
 export function weeklyItems(weekly, index) {
   if (!weekly) return [];
   const byRepo = new Map();
@@ -108,7 +109,7 @@ export function weeklyItems(weekly, index) {
   return weekly.picks.map((p) => {
     const e = byRepo.get(p.repo.toLowerCase());
     const stem = e ? stemOf(e.md) : null;
-    return { ...p, tagline: stem && typeof e.tagline === 'string' ? e.tagline : '', stem };
+    return { ...p, tagline: stem && typeof e.tagline === 'string' ? e.tagline : '', stem, failed: !stem && p.failed };
   });
 }
 
