@@ -77,6 +77,41 @@ export async function loadIndex(cfg, fetchImpl = fetch) {
   return { state: failState(r.status), index: null };
 }
 
+// Coupled with the library's .github/weekly/publish.py (weekly/latest.json). The file is optional:
+// libraries without the weekly workflow simply answer 404 and the 本週精選 view stays hidden.
+export const WEEKLY_KIND = { useful: '便利', fun: '有趣', idea: '新思路' };
+const FULL_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/;
+
+export function parseWeekly(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { return null; }
+  if (!data || typeof data.week !== 'string' || !Array.isArray(data.picks)) return null;
+  const picks = data.picks.filter((p) => p && typeof p.repo === 'string' && FULL_RE.test(p.repo)
+    && Object.hasOwn(WEEKLY_KIND, p.kind) && typeof p.reason === 'string')
+    .slice(0, 10)
+    .map((p) => ({ repo: p.repo, kind: p.kind, reason: p.reason.slice(0, 200) }));
+  return { week: data.week.slice(0, 20), picks };
+}
+
+export async function loadWeekly(cfg, fetchImpl = fetch) {
+  const r = await ghRaw(cfg, 'weekly/latest.json', fetchImpl);
+  return r.status === 200 ? parseWeekly(r.text) : null;
+}
+
+// Taglines and reading-page links come from index.json, so a pick shows its analysis as soon as it lands.
+export function weeklyItems(weekly, index) {
+  if (!weekly) return [];
+  const byRepo = new Map();
+  for (const e of (index && Array.isArray(index.entries) ? index.entries : [])) {
+    if (e && typeof e.repo === 'string') byRepo.set(e.repo.toLowerCase(), e);
+  }
+  return weekly.picks.map((p) => {
+    const e = byRepo.get(p.repo.toLowerCase());
+    const stem = e ? stemOf(e.md) : null;
+    return { ...p, tagline: stem && typeof e.tagline === 'string' ? e.tagline : '', stem };
+  });
+}
+
 async function ghJson(cfg, method, path, body, fetchImpl) {
   const res = await fetchImpl(`${API}/${cfg.repo}${path}`, {
     method, cache: 'no-cache', headers: { ...headers(cfg, 'application/vnd.github+json'), ...(body ? { 'Content-Type': 'application/json' } : {}) },

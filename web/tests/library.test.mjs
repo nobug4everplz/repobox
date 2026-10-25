@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStem, stemOf, mergeLibrary, specRows, ghRaw, loadIndex, STATE_TEXT } from '../lib/library.mjs';
+import { parseStem, stemOf, mergeLibrary, specRows, ghRaw, loadIndex, STATE_TEXT, parseWeekly, loadWeekly, weeklyItems } from '../lib/library.mjs';
 
 const CFG = { repo: 'me/lib', token: 'tok' };
 const fakeFetch = (routes) => async (url, opts) => {
@@ -263,4 +263,35 @@ test('removeEntry leaves the README count alone when index.json has no entries a
     const rd = tree.find((t) => t.path === 'README.md').content;
     assert.ok(!rd.includes('old__one') && rd.includes('\n2 個 repo'), body);
   }
+});
+
+test('parseWeekly keeps only well-formed picks', () => {
+  const doc = { week: '2026-W44', picks: [
+    { repo: 'a/b', kind: 'useful', reason: 'ok' },
+    { repo: 'bad repo', kind: 'fun', reason: 'x' },
+    { repo: 'c/d', kind: 'constructor', reason: 'x' },
+    { repo: 'e/f', kind: 'idea', reason: 'r'.repeat(500), extra: '<script>' },
+  ] };
+  const w = parseWeekly(JSON.stringify(doc));
+  assert.deepEqual(w.picks.map((p) => p.repo), ['a/b', 'e/f']);
+  assert.equal(w.picks[1].reason.length, 200);
+  assert.equal('extra' in w.picks[1], false);
+  assert.equal(parseWeekly('nope'), null);
+  assert.equal(parseWeekly('{"week":1,"picks":[]}'), null);
+});
+
+test('loadWeekly returns null when the library has no weekly file', async () => {
+  assert.equal(await loadWeekly(CFG, fakeFetch({})), null);
+  const w = await loadWeekly(CFG, fakeFetch({ '/contents/weekly/latest.json': { status: 200, body: '{"week":"2026-W44","picks":[]}' } }));
+  assert.deepEqual(w, { week: '2026-W44', picks: [] });
+});
+
+test('weeklyItems links analyzed picks and leaves the rest on GitHub', () => {
+  const weekly = { week: 'w', picks: [{ repo: 'A/B', kind: 'fun', reason: 'r' }, { repo: 'c/d', kind: 'idea', reason: 'r' }] };
+  const index = { entries: [{ repo: 'a/b', md: 'library/a__b.md', tagline: '一句話' }] };
+  const items = weeklyItems(weekly, index);
+  assert.equal(items[0].stem, 'a__b');
+  assert.equal(items[0].tagline, '一句話');
+  assert.equal(items[1].stem, null);
+  assert.deepEqual(weeklyItems(null, index), []);
 });

@@ -1,6 +1,6 @@
 'use strict';
 
-import { loadIndex, mergeLibrary, badges, categoryLabel, STATE_TEXT } from './lib/library.mjs';
+import { loadIndex, loadWeekly, weeklyItems, WEEKLY_KIND, mergeLibrary, badges, categoryLabel, STATE_TEXT } from './lib/library.mjs';
 
 const CFG_KEY = 'repobox.cfg';
 const RESERVED_OWNERS = new Set([
@@ -199,26 +199,26 @@ function historyFor(cfg) {
 }
 
 // The list shows the whole library (index.json) plus local captures still being analyzed.
-const lib = { state: 'ok', index: null, repo: null };
+const lib = { state: 'ok', index: null, weekly: null, repo: null };
 let libSeq = 0;
 
 // Only the latest request for the currently configured repo may update the list.
 async function loadLib() {
   const cfg = loadCfg();
   const seq = ++libSeq;
-  if (!cfg || !cfg.token) { Object.assign(lib, { state: 'ok', index: null, repo: null }); renderLibrary(); return; }
-  if (lib.repo !== cfg.repo) { Object.assign(lib, { state: 'ok', index: null, repo: cfg.repo }); renderLibrary(); }
-  const result = await loadIndex(cfg);
+  if (!cfg || !cfg.token) { Object.assign(lib, { state: 'ok', index: null, weekly: null, repo: null }); renderLibrary(); return; }
+  if (lib.repo !== cfg.repo) { Object.assign(lib, { state: 'ok', index: null, weekly: null, repo: cfg.repo }); renderLibrary(); }
+  const [result, weekly] = await Promise.all([loadIndex(cfg), loadWeekly(cfg)]);
   const now = loadCfg();
   if (seq !== libSeq || !now || now.repo !== cfg.repo) return;
-  Object.assign(lib, result, { repo: cfg.repo });
+  Object.assign(lib, result, { weekly, repo: cfg.repo });
   renderLibrary();
 }
 
 let libFilter = '';
-const PENDING = '__pending', FAILED = '__failed';
+const PENDING = '__pending', FAILED = '__failed', WEEKLY = '__weekly';
 
-function card(href, external, cls, title, repo, chips) {
+function card(href, external, cls, title, repo, chips, note = '') {
   const a = document.createElement('a');
   a.className = cls ? `card ${cls}` : 'card';
   a.href = href;
@@ -226,6 +226,7 @@ function card(href, external, cls, title, repo, chips) {
   const tl = document.createElement('span'); tl.className = 'tl'; tl.textContent = title;
   const rp = document.createElement('span'); rp.className = 'rp'; rp.textContent = repo;
   a.append(tl, rp);
+  if (note) { const nt = document.createElement('span'); nt.className = 'nt'; nt.textContent = note; a.append(nt); }
   if (chips.length) {
     const bd = document.createElement('span'); bd.className = 'bd';
     for (const c of chips) { const s = document.createElement('span'); s.textContent = c; bd.append(s); }
@@ -244,30 +245,34 @@ function catButton(key, label, count) {
   return b;
 }
 
-// Category index (全部, each category by size, then 分析中/失敗) and the cards for the chosen one.
+// Category index (本週精選, 全部, each category by size, then 分析中/失敗) and the cards for the chosen one.
 function renderLibrary() {
   const cfg = loadCfg();
   const note = $('lib-note');
   note.textContent = lib.state === 'ok' || lib.state === 'empty' ? '' : STATE_TEXT[lib.state];
   const index = cfg && lib.repo === cfg.repo ? lib.index : null;
   const items = cfg ? mergeLibrary(index, historyFor(cfg), cfg.repo) : [];
+  const picks = cfg && lib.repo === cfg.repo ? weeklyItems(lib.weekly, index) : [];
   const entries = items.filter((it) => it.kind === 'entry');
   const pending = items.filter((it) => it.kind === 'pending');
   const failed = items.filter((it) => it.kind === 'failed');
   const counts = new Map();
   for (const it of entries) { const k = it.category || 'other'; counts.set(k, (counts.get(k) || 0) + 1); }
-  const known = new Set(['', PENDING, FAILED, ...counts.keys()]);
-  if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)) libFilter = '';
+  const known = new Set(['', PENDING, FAILED, WEEKLY, ...counts.keys()]);
+  if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)
+    || (libFilter === WEEKLY && !picks.length)) libFilter = '';
 
-  const cats = [catButton('', '全部', entries.length)];
+  const cats = [];
+  if (picks.length) cats.push(catButton(WEEKLY, '本週精選', picks.length));
+  cats.push(catButton('', '全部', entries.length));
   const label = (k) => categoryLabel(k) || k;
   for (const [k, n] of [...counts].sort((a, b) => b[1] - a[1] || label(a[0]).localeCompare(label(b[0]), 'zh-Hant'))) cats.push(catButton(k, label(k), n));
   if (pending.length || failed.length) { const sep = document.createElement('i'); sep.className = 'sep'; cats.push(sep); }
   if (pending.length) cats.push(catButton(PENDING, '分析中', pending.length));
   if (failed.length) cats.push(catButton(FAILED, '失敗', failed.length));
-  $('cats').replaceChildren(...(items.length ? cats : []));
+  $('cats').replaceChildren(...(items.length || picks.length ? cats : []));
 
-  if (!items.length) {
+  if (!items.length && libFilter !== WEEKLY) {
     const p = document.createElement('p');
     p.className = 'empty';
     p.textContent = cfg ? STATE_TEXT.empty : '連結收藏庫之後，你的書庫會列在這裡。';
@@ -278,8 +283,13 @@ function renderLibrary() {
   const pendingCards = () => pending.map((it) => card(`${gh}/actions`, true, 'pending', it.repo, `分析中 · ${ago(it.at)}`, []));
   const failedCards = () => failed.map((it) => card(`${gh}/blob/main/inbox/failed/${it.id}.json`, true, 'failed', it.repo, `分析失敗 · ${ago(it.at)}`, []));
   const entryCards = (list) => list.map((it) => card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo, it.repo, badges(it.requirements)));
+  // A pick not analyzed yet links to GitHub; once index.json has it, to the reading page.
+  const weeklyCards = () => picks.map((it) => (it.stem
+    ? card(`read.html#${it.stem}`, false, '', it.tagline || it.repo, `${WEEKLY_KIND[it.kind]} · ${it.repo}`, [], it.reason)
+    : card(`https://github.com/${it.repo}`, true, 'pending', it.repo, `${WEEKLY_KIND[it.kind]} · 分析中`, [], it.reason)));
   let cards;
-  if (libFilter === PENDING) cards = pendingCards();
+  if (libFilter === WEEKLY) cards = weeklyCards();
+  else if (libFilter === PENDING) cards = pendingCards();
   else if (libFilter === FAILED) cards = failedCards();
   else if (libFilter) cards = entryCards(entries.filter((it) => (it.category || 'other') === libFilter));
   else cards = [...pendingCards(), ...failedCards(), ...entryCards(entries)];
