@@ -10,7 +10,7 @@ on:
         required: false
         default: ''
       model:
-        description: Claude model alias for the analysis (opus | sonnet | haiku); empty = sonnet
+        description: Claude model for the analysis, an alias (opus | sonnet | haiku) or a full id (claude-sonnet-5-5); empty = sonnet
         type: string
         required: false
         default: sonnet
@@ -32,16 +32,18 @@ jobs:
       items: ${{ steps.list.outputs.items }}
       model: ${{ steps.model.outputs.model }}
     steps:
-      # Allowlisted aliases only: the value ends up on the claude command line.
+      # Allowlisted shapes only: the value ends up on the claude command line. A full id pins the
+      # exact model; an alias follows whatever the pinned Claude Code version maps it to.
       - id: model
         env:
           MODEL: ${{ inputs.model }}
         run: |
           model="${MODEL:-sonnet}"
-          case "$model" in
-            opus|sonnet|haiku) echo "model=$model" >> "$GITHUB_OUTPUT"; echo "model: $model" ;;
-            *) echo "::error::model must be opus, sonnet or haiku (got: $model)"; exit 1 ;;
-          esac
+          if [[ "$model" =~ ^(opus|sonnet|haiku)$ || "$model" =~ ^claude-(opus|sonnet|haiku)-[0-9]+(-[0-9]+)*$ ]]; then
+            echo "model=$model" >> "$GITHUB_OUTPUT"; echo "model: $model"
+          else
+            echo "::error::model must be opus, sonnet, haiku or a full id like claude-sonnet-5-5 (got: $model)"; exit 1
+          fi
 
       # Runs are serialized by the caller's concurrency group; checking out the branch tip
       # (not github.sha) makes a queued run see what the previous run already published.
