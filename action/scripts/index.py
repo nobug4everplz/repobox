@@ -38,8 +38,12 @@ def collect(library: Path) -> list[dict]:
         sightings = [s for s in fm.get("sightings") or [] if isinstance(s, dict)]
         times = [s.get("at") for s in sightings if s.get("at")]
         last_seen = max(times, key=_instant) if times else fm.get("analyzed_at")
+        # added_at: the user's own latest capture; weekly picks do not count.
+        own = [s.get("at") for s in sightings if s.get("at") and s.get("source") != "weekly"]
+        added_at = max(own, key=_instant) if own else ""
         e = {k: fm.get(k) for k in INDEX_FIELDS}
-        e.update({"md": f"library/{p.name}", "last_seen": str(last_seen or ""), "sightings_n": len(sightings)})
+        e.update({"md": f"library/{p.name}", "last_seen": str(last_seen or ""), "added_at": str(added_at),
+                  "sightings_n": len(sightings)})
         if (p.parent / f"{p.stem}.svg").exists():
             e["svg"] = f"library/{p.stem}.svg"
         out.append(e)

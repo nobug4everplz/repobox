@@ -28,6 +28,16 @@ class IndexTest(unittest.TestCase):
         self.assertNotIn("svg", got["B/Two"])
         self.assertEqual(got["B/Two"]["last_seen"], "2026-10-01T00:00:00+00:00")
 
+    def test_collect_added_at_ignores_weekly_sightings(self):
+        own = {"id": "a", "at": "2026-10-02T00:00:00+00:00", "source": "ios"}
+        weekly = {"id": "b", "at": "2026-10-09T00:00:00+00:00", "source": "weekly"}
+        write_entry(self.lib, "A/One", 1, [own, weekly])
+        write_entry(self.lib, "B/Two", 2, [weekly])
+        got = {e["repo"]: e for e in index.collect(self.lib)}
+        self.assertEqual(got["A/One"]["added_at"], "2026-10-02T00:00:00+00:00")
+        self.assertEqual(got["A/One"]["last_seen"], "2026-10-09T00:00:00+00:00")
+        self.assertEqual(got["B/Two"]["added_at"], "")
+
     def test_collect_skips_invalid_frontmatter(self):
         self.lib.mkdir(parents=True)
         (self.lib / "junk.md").write_text("---\nrepo: '](http://e)'\nrepo_id: x\n---\nhi\n", encoding="utf-8")

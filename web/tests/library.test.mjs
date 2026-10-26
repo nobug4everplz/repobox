@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStem, stemOf, mergeLibrary, specRows, ghRaw, loadIndex, STATE_TEXT, parseWeekly, loadWeekly, weeklyItems,
+import { parseStem, stemOf, mergeLibrary, recentAdded, specRows, ghRaw, loadIndex, STATE_TEXT, parseWeekly, loadWeekly, weeklyItems,
   parseReactions, loadReactions, setReaction } from '../lib/library.mjs';
 
 const CFG = { repo: 'me/lib', token: 'tok' };
@@ -48,6 +48,14 @@ test('mergeLibrary orders entries and puts unindexed pending/failed first', () =
 test('mergeLibrary with no index still lists local pending items', () => {
   const items = mergeLibrary(null, [{ id: 'p1', repo: 'A/B', lib: 'me/lib', at: '2026-10-19T00:00:00Z', state: 'pending' }], 'me/lib');
   assert.deepEqual(items.map((i) => i.kind), ['pending']);
+});
+
+test('recentAdded keeps own captures only, newest first, capped', () => {
+  const e = (repo, added_at) => ({ repo, md: `library/${repo.replace('/', '__').toLowerCase()}.md`, last_seen: '2026-10-20T00:00:00Z', added_at });
+  const index = { entries: [e('A/Old', '2026-10-01T00:00:00Z'), e('W/Pick', ''), e('B/New', '2026-10-05T00:00:00Z'), { repo: 'C/Pre', md: 'library/c__pre.md' }] };
+  const items = mergeLibrary(index, [], 'me/lib');
+  assert.deepEqual(recentAdded(items).map((it) => it.repo), ['B/New', 'A/Old']);
+  assert.deepEqual(recentAdded(items, 1).map((it) => it.repo), ['B/New']);
 });
 
 test('specRows splits labelled requirement lines', () => {

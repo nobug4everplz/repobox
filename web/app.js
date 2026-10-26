@@ -1,7 +1,7 @@
 'use strict';
 
 import { loadIndex, loadWeekly, weeklyItems, WEEKLY_KIND, loadReactions, setReaction, b64utf8,
-  mergeLibrary, badges, categoryLabel, STATE_TEXT } from './lib/library.mjs';
+  mergeLibrary, recentAdded, badges, categoryLabel, STATE_TEXT } from './lib/library.mjs';
 
 const CFG_KEY = 'repobox.cfg';
 const RESERVED_OWNERS = new Set([
@@ -213,7 +213,7 @@ async function loadLib() {
 
 let libFilter = '';
 let wantWeekly = location.hash === '#weekly';
-const PENDING = '__pending', FAILED = '__failed', WEEKLY = '__weekly', LIKED = '__liked';
+const PENDING = '__pending', FAILED = '__failed', WEEKLY = '__weekly', LIKED = '__liked', RECENT = '__recent';
 
 // 感興趣／沒興趣: the screen changes at once; a failed write puts the old value back.
 const reacting = new Set();
@@ -294,7 +294,7 @@ function catButton(key, label, count) {
   return b;
 }
 
-// Category index (本週精選, 全部, each category by size, then 分析中/失敗) and the cards for the chosen one.
+// Category index (本週精選, 感興趣, 最近加入, 全部, each category by size, then 分析中/失敗) and the cards for the chosen one.
 function renderLibrary() {
   const cfg = loadCfg();
   const note = $('lib-note');
@@ -309,8 +309,10 @@ function renderLibrary() {
   for (const it of entries) { const k = it.category || 'other'; counts.set(k, (counts.get(k) || 0) + 1); }
   const liked = cfg && lib.repo === cfg.repo
     ? Object.values(lib.reactions).filter((x) => x.r === 'like').sort((a, b) => String(b.at).localeCompare(String(a.at))) : [];
-  const known = new Set(['', PENDING, FAILED, WEEKLY, LIKED, ...counts.keys()]);
+  const recent = recentAdded(entries);
+  const known = new Set(['', PENDING, FAILED, WEEKLY, LIKED, RECENT, ...counts.keys()]);
   if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)
+    || (libFilter === RECENT && !recent.length)
     || (libFilter === WEEKLY && !picks.length) || (libFilter === LIKED && !liked.length && !reacting.size)) libFilter = '';
   // An empty library with picks (or a #weekly link from the weekly email) opens on 本週精選.
   if (picks.length && (wantWeekly || (!items.length && !libFilter))) { libFilter = WEEKLY; wantWeekly = false; }
@@ -318,6 +320,7 @@ function renderLibrary() {
   const cats = [];
   if (picks.length) cats.push(catButton(WEEKLY, '本週精選', picks.length));
   if (liked.length) cats.push(catButton(LIKED, '感興趣', liked.length));
+  if (recent.length) cats.push(catButton(RECENT, '最近加入', recent.length));
   cats.push(catButton('', '全部', entries.length));
   const label = (k) => categoryLabel(k) || k;
   for (const [k, n] of [...counts].sort((a, b) => b[1] - a[1] || label(a[0]).localeCompare(label(b[0]), 'zh-Hant'))) cats.push(catButton(k, label(k), n));
@@ -352,6 +355,7 @@ function renderLibrary() {
   let cards;
   if (libFilter === WEEKLY) cards = weeklyCards();
   else if (libFilter === LIKED) cards = likedCards();
+  else if (libFilter === RECENT) cards = entryCards(recent);
   else if (libFilter === PENDING) cards = pendingCards();
   else if (libFilter === FAILED) cards = failedCards();
   else if (libFilter) cards = entryCards(entries.filter((it) => (it.category || 'other') === libFilter));

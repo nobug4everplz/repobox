@@ -251,7 +251,8 @@ export function mergeLibrary(index, history, lib) {
   const entries = (index && Array.isArray(index.entries) ? index.entries : [])
     .filter((e) => e && typeof e === 'object' && typeof e.repo === 'string' && typeof e.md === 'string')
     .map((e) => ({ kind: 'entry', stem: stemOf(e.md), repo: e.repo, tagline: str(e.tagline), intro: str(e.intro), category: str(e.category),
-      requirements: Array.isArray(e.requirements) ? e.requirements.filter((r) => typeof r === 'string') : [], last_seen: str(e.last_seen) }))
+      requirements: Array.isArray(e.requirements) ? e.requirements.filter((r) => typeof r === 'string') : [], last_seen: str(e.last_seen),
+      added_at: str(e.added_at) }))
     .filter((e) => e.stem && e.repo)
     .sort((a, b) => time(b.last_seen) - time(a.last_seen));
   const known = new Set(entries.map((e) => e.repo.toLowerCase()));
@@ -260,6 +261,13 @@ export function mergeLibrary(index, history, lib) {
     .map((h) => ({ kind: h.state, id: h.id, repo: h.repo, at: h.at }))
     .sort((a, b) => time(b.at) - time(a.at));
   return [...local, ...entries];
+}
+
+// 最近加入: entries the user captured (share sheet, shortcut, search box), newest first; weekly-only picks have no added_at.
+export const RECENT_MAX = 10;
+export function recentAdded(entries, n = RECENT_MAX) {
+  return (entries || []).filter((e) => e.kind === 'entry' && time(e.added_at) > 0)
+    .sort((a, b) => time(b.added_at) - time(a.added_at)).slice(0, n);
 }
 
 export function specRows(lines) {
